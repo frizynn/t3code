@@ -27,6 +27,7 @@ import {
   type TerminalOpenInput,
   type TerminalResizeInput,
   type TerminalRestartInput,
+  type TerminalSessionInput,
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
   type TerminalSummary,
@@ -185,6 +186,33 @@ export class TerminalManager extends Context.Service<
     readonly subscribeMetadata: (
       listener: (event: TerminalMetadataStreamEvent) => Effect.Effect<void>,
     ) => Effect.Effect<() => void>;
+
+    /**
+     * Read the metadata of every live terminal session.
+     *
+     * The same roster `subscribeMetadata` delivers as its initial snapshot,
+     * as a point-in-time read.
+     */
+    readonly readAllTerminalMetadata: () => Effect.Effect<ReadonlyArray<TerminalSummary>>;
+
+    /**
+     * Read the metadata of a single terminal session.
+     *
+     * Resolves to `null` when the thread has no session with that id.
+     */
+    readonly readTerminalMetadata: (
+      input: TerminalSessionInput,
+    ) => Effect.Effect<TerminalSummary | null>;
+
+    /**
+     * Read a terminal session snapshot, including its scrollback.
+     *
+     * Unlike `attachStream` this never opens, restarts, or resizes the
+     * session, and resolves to `null` when there is none with that id.
+     */
+    readonly readTerminalSnapshot: (
+      input: TerminalSessionInput,
+    ) => Effect.Effect<TerminalSessionSnapshot | null>;
   }
 >()("t3/terminal/Manager/TerminalManager") {}
 
@@ -2319,7 +2347,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       }),
     );
 
-  const readAllTerminalMetadata = () =>
+  const readAllTerminalMetadata: TerminalManager["Service"]["readAllTerminalMetadata"] = () =>
     readManagerState.pipe(
       Effect.map((state) =>
         [...state.sessions.values()]
@@ -2333,12 +2361,14 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       ),
     );
 
-  const readTerminalMetadata = (input: {
-    readonly threadId: string;
-    readonly terminalId: string;
-  }) =>
+  const readTerminalMetadata: TerminalManager["Service"]["readTerminalMetadata"] = (input) =>
     getSession(input.threadId, input.terminalId).pipe(
       Effect.map((session) => (Option.isSome(session) ? summary(session.value) : null)),
+    );
+
+  const readTerminalSnapshot: TerminalManager["Service"]["readTerminalSnapshot"] = (input) =>
+    getSession(input.threadId, input.terminalId).pipe(
+      Effect.map((session) => (Option.isSome(session) ? snapshot(session.value) : null)),
     );
 
   const subscribe: TerminalManager["Service"]["subscribe"] = (listener) =>
@@ -2664,6 +2694,9 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     close,
     subscribe,
     subscribeMetadata,
+    readAllTerminalMetadata,
+    readTerminalMetadata,
+    readTerminalSnapshot,
   });
 });
 

@@ -58,6 +58,9 @@ const makeTerminalManagerLayer = (
     close: () => Effect.void,
     subscribe: () => Effect.succeed(() => undefined),
     subscribeMetadata: () => Effect.succeed(() => undefined),
+    readAllTerminalMetadata: () => Effect.succeed([]),
+    readTerminalMetadata: () => Effect.succeed(null),
+    readTerminalSnapshot: () => Effect.succeed(null),
   });
 
 const testLayer = (

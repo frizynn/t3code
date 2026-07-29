@@ -704,6 +704,17 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     () => drawerTerminalSessions.map((session) => session.target.terminalId),
     [drawerTerminalSessions],
   );
+  /** Creation-time placement hints, honored only while adopting a terminal this device has not seen. */
+  const serverTerminalPlacements = useMemo(
+    () =>
+      new Map(
+        drawerTerminalSessions.flatMap((session) => {
+          const placement = session.state.summary?.placement;
+          return placement ? [[session.target.terminalId, placement] as const] : [];
+        }),
+      ),
+    [drawerTerminalSessions],
+  );
   const storeSetTerminalHeight = useTerminalUiStateStore((state) => state.setTerminalHeight);
   const storeSplitTerminal = useTerminalUiStateStore((state) => state.splitTerminal);
   const storeSplitTerminalVertical = useTerminalUiStateStore(
@@ -723,8 +734,14 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     ) {
       return;
     }
-    reconcileTerminalIds(threadRef, serverOrderedTerminalIds);
-  }, [reconcileTerminalIds, serverOrderedTerminalIds, terminalUiState.terminalIds, threadRef]);
+    reconcileTerminalIds(threadRef, serverOrderedTerminalIds, serverTerminalPlacements);
+  }, [
+    reconcileTerminalIds,
+    serverOrderedTerminalIds,
+    serverTerminalPlacements,
+    terminalUiState.terminalIds,
+    threadRef,
+  ]);
   const [localFocusRequestId, setLocalFocusRequestId] = useState(0);
   const worktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const effectiveWorktreePath = useMemo(() => {

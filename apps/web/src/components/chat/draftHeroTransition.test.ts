@@ -104,6 +104,40 @@ describe("runMobileComposerTransition", () => {
     expect(dataset).not.toHaveProperty("mobileComposerRouteTransition");
   });
 
+  it("keeps the document flag while an overlapping morph is still running", async () => {
+    const dataset: Record<string, string> = {};
+    const resolvers: Array<() => void> = [];
+    vi.stubGlobal("document", {
+      documentElement: { dataset },
+      getAnimations: () => [],
+      startViewTransition: (update: () => void | Promise<void>) => {
+        void update();
+        return {
+          finished: new Promise<void>((resolve) => {
+            resolvers.push(resolve);
+          }),
+        };
+      },
+    });
+    vi.stubGlobal("window", {
+      matchMedia: (query: string) => ({ matches: query === "(max-width: 639px)" }),
+    });
+
+    const first = runMobileComposerTransition(() => undefined);
+    const second = runMobileComposerTransition(() => undefined);
+    await Promise.resolve();
+    expect(dataset).toHaveProperty("mobileComposerRouteTransition", "true");
+
+    // Starting the second morph skips the first one, so it settles first.
+    resolvers[0]?.();
+    await first;
+    expect(dataset).toHaveProperty("mobileComposerRouteTransition", "true");
+
+    resolvers[1]?.();
+    await second;
+    expect(dataset).not.toHaveProperty("mobileComposerRouteTransition");
+  });
+
   it("updates without a view transition when reduced motion is preferred", async () => {
     const startViewTransition = vi.fn();
     vi.stubGlobal("document", {

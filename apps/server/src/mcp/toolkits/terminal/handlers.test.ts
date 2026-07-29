@@ -5,6 +5,7 @@ import {
   TerminalSessionLookupError,
   ThreadId,
   type TerminalEvent,
+  type TerminalPlacement,
   type TerminalSessionSnapshot,
   type TerminalSessionStatus,
   type TerminalSummary,
@@ -21,6 +22,7 @@ import {
   stripTerminalControlSequences,
   terminalToolkitHandlers,
 } from "./handlers.ts";
+import { TERMINAL_OPEN_DEFAULT_PLACEMENT } from "./tools.ts";
 
 const UPDATED_AT = "2026-01-01T00:00:00.000Z";
 
@@ -32,6 +34,8 @@ interface StubSession {
   status: TerminalSessionStatus;
   history: string;
   hasRunningSubprocess: boolean;
+  /** Recorded once at creation, exactly like the real manager. */
+  readonly placement: TerminalPlacement | null;
 }
 
 interface StubTerminalManager {
@@ -74,6 +78,7 @@ const makeStubTerminalManager = (): StubTerminalManager => {
     hasRunningSubprocess: session.hasRunningSubprocess,
     label: getTerminalLabel(session.terminalId),
     updatedAt: UPDATED_AT,
+    ...(session.placement === null ? {} : { placement: session.placement }),
   });
 
   const snapshotOf = (session: StubSession): TerminalSessionSnapshot => ({
@@ -109,6 +114,7 @@ const makeStubTerminalManager = (): StubTerminalManager => {
         status: "running",
         history: "",
         hasRunningSubprocess: false,
+        placement: input.placement ?? null,
       };
       sessions.set(key(input.threadId, input.terminalId), session);
       const snapshot = snapshotOf(session);
@@ -383,6 +389,52 @@ it.effect("opens a terminal, submits a command, and reads the output back", () =
     expect(read.output).toBe("pnpm test\n3 passed\n");
     expect(read.truncated).toBe(false);
     expect(read.hasRunningSubprocess).toBe(false);
+  }),
+);
+
+it.effect("defaults an opened terminal's placement to a split beside the current view", () =>
+  Effect.gen(function* () {
+    const stub = makeStubTerminalManager();
+    const opened = yield* runAs(
+      "thread-a",
+      stub,
+      terminalToolkitHandlers.terminal_open({ cwd: "/repo" }),
+    );
+    expect(opened.terminal.placement).toBe(TERMINAL_OPEN_DEFAULT_PLACEMENT);
+    expect(TERMINAL_OPEN_DEFAULT_PLACEMENT).toBe("right");
+
+    const listed = yield* runAs("thread-a", stub, terminalToolkitHandlers.terminal_list());
+    expect(listed.terminals.map((terminal) => terminal.placement)).toEqual(["right"]);
+  }),
+);
+
+it.effect("round-trips a requested placement onto the terminal summary", () =>
+  Effect.gen(function* () {
+    const stub = makeStubTerminalManager();
+    const bottom = yield* runAs(
+      "thread-a",
+      stub,
+      terminalToolkitHandlers.terminal_open({ cwd: "/repo", placement: "bottom" }),
+    );
+    const tab = yield* runAs(
+      "thread-a",
+      stub,
+      terminalToolkitHandlers.terminal_open({ cwd: "/repo", placement: "tab" }),
+    );
+    expect(bottom.terminal.placement).toBe("bottom");
+    expect(tab.terminal.placement).toBe("tab");
+
+    // Placement is a creation-time hint, so reattaching must not rewrite it.
+    const reattached = yield* runAs(
+      "thread-a",
+      stub,
+      terminalToolkitHandlers.terminal_open({
+        cwd: "/repo",
+        terminalId: bottom.terminalId,
+        placement: "tab",
+      }),
+    );
+    expect(reattached.terminal.placement).toBe("bottom");
   }),
 );
 

@@ -25,6 +25,7 @@ import {
   type TerminalEvent,
   type TerminalMetadataStreamEvent,
   type TerminalOpenInput,
+  type TerminalPlacement,
   type TerminalResizeInput,
   type TerminalRestartInput,
   type TerminalSessionInput,
@@ -292,6 +293,8 @@ export interface TerminalSessionState {
   /** Normalized child command name when `hasRunningSubprocess`; cleared when idle. */
   childCommandLabel: string | null;
   runtimeEnv: Record<string, string> | null;
+  /** Presentation hint recorded when the session was created; never mutated after. */
+  placement: TerminalPlacement | null;
 }
 
 interface PersistHistoryRequest {
@@ -391,6 +394,7 @@ function summary(session: TerminalSessionState): TerminalSummary {
     hasRunningSubprocess: session.hasRunningSubprocess,
     label: terminalWireLabel(session),
     updatedAt: session.updatedAt,
+    ...(session.placement === null ? {} : { placement: session.placement }),
   };
 }
 
@@ -2216,6 +2220,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         hasRunningSubprocess: false,
         childCommandLabel: null,
         runtimeEnv: normalizedRuntimeEnv(input.env),
+        placement: input.placement ?? null,
       };
 
       const createdSession = session;
@@ -2642,6 +2647,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
             hasRunningSubprocess: false,
             childCommandLabel: null,
             runtimeEnv: normalizedRuntimeEnv(input.env),
+            placement: null,
           };
           const createdSession = session;
           yield* modifyManagerState((state) => {

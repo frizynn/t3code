@@ -36,6 +36,15 @@ const TerminalSessionInput = Schema.Struct({
 });
 export type TerminalSessionInput = Schema.Codec.Encoded<typeof TerminalSessionInput>;
 
+/**
+ * Where the opener asked this terminal to be presented. A creation-time hint,
+ * never layout state: the server records it and clients honor it once, when
+ * they first adopt the terminal. Layout stays per-device, so a desktop split
+ * is never forced onto a phone.
+ */
+export const TerminalPlacement = Schema.Literals(["tab", "right", "bottom"]);
+export type TerminalPlacement = typeof TerminalPlacement.Type;
+
 export const TerminalOpenInput = Schema.Struct({
   ...TerminalSessionInput.fields,
   cwd: TrimmedNonEmptyStringSchema,
@@ -43,6 +52,7 @@ export const TerminalOpenInput = Schema.Struct({
   cols: Schema.optional(TerminalColsSchema),
   rows: Schema.optional(TerminalRowsSchema),
   env: Schema.optional(TerminalEnvSchema),
+  placement: Schema.optional(TerminalPlacement),
 });
 export type TerminalOpenInput = Schema.Codec.Encoded<typeof TerminalOpenInput>;
 
@@ -123,6 +133,8 @@ export const TerminalSummary = Schema.Struct({
   /** Server-computed display title (idle shell vs subprocess command). */
   label: Schema.String.check(Schema.isMaxLength(128)),
   updatedAt: Schema.String,
+  /** Creation-time presentation hint; absent when the opener did not ask for one. */
+  placement: Schema.optional(TerminalPlacement),
 });
 export type TerminalSummary = typeof TerminalSummary.Type;
 

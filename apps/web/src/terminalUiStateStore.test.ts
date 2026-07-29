@@ -1,5 +1,5 @@
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { ThreadId } from "@t3tools/contracts";
+import { ThreadId, type TerminalPlacement } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it } from "vite-plus/test";
 
 import {
@@ -259,6 +259,106 @@ describe("terminalUiStateStore actions", () => {
     expect(terminalUiState.terminalGroups).toEqual([
       { id: "group-term-a", terminalIds: ["term-a"] },
       { id: "group-term-b", terminalIds: ["term-b"] },
+    ]);
+  });
+
+  it("adopts a right-placed server terminal as a horizontal split of the active group", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.reconcileTerminalIds(
+      THREAD_REF,
+      [DEFAULT_THREAD_TERMINAL_ID, "term-2"],
+      new Map<string, TerminalPlacement>([["term-2", "right"]]),
+    );
+
+    const terminalUiState = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalUiState.terminalIds).toEqual([DEFAULT_THREAD_TERMINAL_ID, "term-2"]);
+    expect(terminalUiState.terminalGroups).toEqual([
+      {
+        id: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
+        terminalIds: [DEFAULT_THREAD_TERMINAL_ID, "term-2"],
+      },
+    ]);
+    expect(terminalUiState.activeTerminalGroupId).toBe(`group-${DEFAULT_THREAD_TERMINAL_ID}`);
+  });
+
+  it("adopts a bottom-placed server terminal as a vertical split of the active group", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.reconcileTerminalIds(
+      THREAD_REF,
+      [DEFAULT_THREAD_TERMINAL_ID, "term-2"],
+      new Map<string, TerminalPlacement>([["term-2", "bottom"]]),
+    );
+
+    expect(
+      selectThreadTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+        THREAD_REF,
+      ).terminalGroups,
+    ).toEqual([
+      {
+        id: `group-${DEFAULT_THREAD_TERMINAL_ID}`,
+        terminalIds: [DEFAULT_THREAD_TERMINAL_ID, "term-2"],
+        splitDirection: "vertical",
+      },
+    ]);
+  });
+
+  it("adopts tab-placed and unhinted server terminals into their own groups", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    store.reconcileTerminalIds(
+      THREAD_REF,
+      [DEFAULT_THREAD_TERMINAL_ID, "term-2", "term-3"],
+      new Map<string, TerminalPlacement>([["term-2", "tab"]]),
+    );
+
+    expect(
+      selectThreadTerminalUiState(
+        useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+        THREAD_REF,
+      ).terminalGroups,
+    ).toEqual([
+      { id: `group-${DEFAULT_THREAD_TERMINAL_ID}`, terminalIds: [DEFAULT_THREAD_TERMINAL_ID] },
+      { id: "group-term-2", terminalIds: ["term-2"] },
+      { id: "group-term-3", terminalIds: ["term-3"] },
+    ]);
+  });
+
+  it("leaves placement alone when the same roster snapshot arrives again", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.setTerminalOpen(THREAD_REF, true);
+    const placements = new Map<string, TerminalPlacement>([["term-2", "right"]]);
+    store.reconcileTerminalIds(THREAD_REF, [DEFAULT_THREAD_TERMINAL_ID, "term-2"], placements);
+    const afterFirstReconcile = useTerminalUiStateStore.getState().terminalUiStateByThreadKey;
+
+    store.reconcileTerminalIds(THREAD_REF, [DEFAULT_THREAD_TERMINAL_ID, "term-2"], placements);
+
+    expect(useTerminalUiStateStore.getState().terminalUiStateByThreadKey).toBe(afterFirstReconcile);
+  });
+
+  it("does not re-adopt a user-closed terminal that carries a placement hint", () => {
+    const store = useTerminalUiStateStore.getState();
+    store.newTerminal(THREAD_REF, "term-2");
+    store.closeTerminal(THREAD_REF, DEFAULT_THREAD_TERMINAL_ID);
+
+    store.reconcileTerminalIds(
+      THREAD_REF,
+      [DEFAULT_THREAD_TERMINAL_ID, "term-2"],
+      new Map<string, TerminalPlacement>([[DEFAULT_THREAD_TERMINAL_ID, "right"]]),
+    );
+
+    const terminalUiState = selectThreadTerminalUiState(
+      useTerminalUiStateStore.getState().terminalUiStateByThreadKey,
+      THREAD_REF,
+    );
+    expect(terminalUiState.terminalIds).toEqual(["term-2"]);
+    expect(terminalUiState.terminalGroups).toEqual([
+      { id: "group-term-2", terminalIds: ["term-2"] },
     ]);
   });
 

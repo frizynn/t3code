@@ -806,6 +806,33 @@ it.layer(
     }),
   );
 
+  it.effect("records the creation-time placement hint on terminal metadata", () =>
+    Effect.gen(function* () {
+      const { manager } = yield* createManager();
+      yield* manager.open(openInput({ placement: "bottom" }));
+      yield* manager.open(openInput({ terminalId: "term-2" }));
+
+      const hinted = yield* manager.readTerminalMetadata({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+      });
+      const unhinted = yield* manager.readTerminalMetadata({
+        threadId: "thread-1",
+        terminalId: "term-2",
+      });
+      assert.equal(hinted?.placement, "bottom");
+      assert.equal(unhinted?.placement, undefined);
+
+      // The hint describes how the terminal was created, so reopening cannot move it.
+      yield* manager.open(openInput({ placement: "tab" }));
+      const reopened = yield* manager.readTerminalMetadata({
+        threadId: "thread-1",
+        terminalId: DEFAULT_TERMINAL_ID,
+      });
+      assert.equal(reopened?.placement, "bottom");
+    }),
+  );
+
   it.effect("preserves worktree metadata when reopening an exited session", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, getEvents, baseDir } = yield* createManager();

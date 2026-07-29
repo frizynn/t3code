@@ -1,4 +1,4 @@
-import { TerminalError, TerminalSummary } from "@t3tools/contracts";
+import { TerminalError, TerminalPlacement, TerminalSummary } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/unstable/ai";
 
@@ -6,6 +6,13 @@ import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const dependencies = [McpInvocationContext.McpInvocationContext, TerminalManager.TerminalManager];
+
+/**
+ * Where `terminal_open` puts the terminal when the caller does not say. Splitting
+ * beside the current view keeps agent-opened shells in front of the human instead
+ * of hiding them behind a tab.
+ */
+export const TERMINAL_OPEN_DEFAULT_PLACEMENT: TerminalPlacement = "right";
 
 /** Trailing output lines returned by `terminal_read` when the caller does not ask for a bound. */
 export const TERMINAL_READ_DEFAULT_LINES = 200;
@@ -69,6 +76,10 @@ export const TerminalOpenToolInput = Schema.Struct({
   }),
   rows: Schema.optional(TerminalRowsInput).annotate({
     description: "PTY height in rows. Defaults to 30.",
+  }),
+  placement: Schema.optional(TerminalPlacement).annotate({
+    description:
+      "Where to put the terminal in the human's layout: 'right' splits their current view side by side, 'bottom' splits it top and bottom, 'tab' opens a separate tab they have to switch to. Defaults to 'right' so the terminal appears next to what they are already looking at. Only applies the first time a client sees the terminal, and each device keeps its own layout.",
   }),
 });
 export type TerminalOpenToolInput = typeof TerminalOpenToolInput.Type;

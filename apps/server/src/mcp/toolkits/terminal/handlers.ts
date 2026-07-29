@@ -12,6 +12,7 @@ import * as Ref from "effect/Ref";
 import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import {
+  TERMINAL_OPEN_DEFAULT_PLACEMENT,
   TERMINAL_READ_DEFAULT_LINES,
   TERMINAL_READ_MAX_CHARACTERS,
   TERMINAL_WAIT_DEFAULT_QUIET_MS,
@@ -183,6 +184,7 @@ export const terminalToolkitHandlers = {
       ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
       ...(input.cols === undefined ? {} : { cols: input.cols }),
       ...(input.rows === undefined ? {} : { rows: input.rows }),
+      placement: input.placement ?? TERMINAL_OPEN_DEFAULT_PLACEMENT,
     };
     // Allocating an id here would race a concurrent open: both callers would pick
     // the same free id and the second would silently reattach to the first

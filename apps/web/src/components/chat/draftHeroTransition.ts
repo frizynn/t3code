@@ -9,6 +9,12 @@ type ComposerViewTransition = {
 };
 
 let activeMobileComposerTransition: Promise<void> | null = null;
+/**
+ * Number of mobile composer morphs currently in flight. Starting a second view
+ * transition skips the first one, so the first call can settle while the second
+ * is still animating; the document flag it owns must outlive it.
+ */
+let runningMobileComposerTransitions = 0;
 
 type ComposerViewTransitionDocument = Document & {
   startViewTransition?: (update: () => void | Promise<void>) => ComposerViewTransition;
@@ -61,6 +67,7 @@ export async function runMobileComposerTransition(
     await update();
   };
   let transitionFinished: Promise<void> | null = null;
+  runningMobileComposerTransitions += 1;
   transitionDocument.documentElement.dataset.mobileComposerRouteTransition = "true";
   try {
     const transition = transitionDocument.startViewTransition(runUpdate);
@@ -77,6 +84,9 @@ export async function runMobileComposerTransition(
     if (activeMobileComposerTransition === transitionFinished) {
       activeMobileComposerTransition = null;
     }
-    delete transitionDocument.documentElement.dataset.mobileComposerRouteTransition;
+    runningMobileComposerTransitions -= 1;
+    if (runningMobileComposerTransitions === 0) {
+      delete transitionDocument.documentElement.dataset.mobileComposerRouteTransition;
+    }
   }
 }

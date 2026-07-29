@@ -6,7 +6,7 @@
  */
 
 import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { type ScopedThreadRef } from "@t3tools/contracts";
+import { type ScopedThreadRef, type TerminalPlacement } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -451,13 +451,54 @@ function closeThreadTerminal(
   });
 }
 
+/**
+ * Placement is a creation-time hint from whoever opened the terminal, so it only
+ * steers the layout while adopting an id this device has never seen. Anything
+ * already on screen keeps the arrangement the user gave it.
+ */
+function splitDirectionForPlacement(
+  placement: TerminalPlacement | undefined,
+): "horizontal" | "vertical" | null {
+  switch (placement) {
+    case "right":
+      return "horizontal";
+    case "bottom":
+      return "vertical";
+    default:
+      return null;
+  }
+}
+
 function reconcileThreadTerminalSessionIds(
   state: ThreadTerminalUiState,
   nextIds: string[],
+  placementByTerminalId?: ReadonlyMap<string, TerminalPlacement>,
 ): ThreadTerminalUiState {
   const normalized = normalizeThreadTerminalUiState(state);
   if (arraysEqual(normalized.terminalIds, nextIds)) {
     return normalized;
+  }
+
+  if (placementByTerminalId && placementByTerminalId.size > 0) {
+    const knownTerminalIds = new Set(normalized.terminalIds);
+    const splitAdoptions = nextIds.flatMap((terminalId) => {
+      if (knownTerminalIds.has(terminalId)) return [];
+      const direction = splitDirectionForPlacement(placementByTerminalId.get(terminalId));
+      return direction === null ? [] : [{ terminalId, direction }];
+    });
+    if (splitAdoptions.length > 0) {
+      const splitTerminalIds = new Set(splitAdoptions.map((adoption) => adoption.terminalId));
+      // Reconcile the rest first so the split lands next to whatever this device
+      // is actually showing, then fold each hinted terminal into that group.
+      return splitAdoptions.reduce(
+        (accumulated, adoption) =>
+          splitThreadTerminal(accumulated, adoption.terminalId, adoption.direction),
+        reconcileThreadTerminalSessionIds(
+          normalized,
+          nextIds.filter((terminalId) => !splitTerminalIds.has(terminalId)),
+        ),
+      );
+    }
   }
 
   const nextActiveTerminalId = nextIds.includes(normalized.activeTerminalId)
@@ -576,7 +617,11 @@ interface TerminalUiStateStoreState {
   ) => void;
   setActiveTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
   closeTerminal: (threadRef: ScopedThreadRef, terminalId: string) => void;
-  reconcileTerminalIds: (threadRef: ScopedThreadRef, nextIds: string[]) => void;
+  reconcileTerminalIds: (
+    threadRef: ScopedThreadRef,
+    nextIds: string[],
+    placementByTerminalId?: ReadonlyMap<string, TerminalPlacement>,
+  ) => void;
   clearTerminalUiState: (threadRef: ScopedThreadRef) => void;
   removeTerminalUiState: (threadRef: ScopedThreadRef) => void;
   removeOrphanedTerminalUiStates: (activeThreadKeys: Set<string>) => void;
@@ -687,15 +732,16 @@ export const useTerminalUiStateStore = create<TerminalUiStateStoreState>()(
             terminalId,
             suppressed: true,
           }),
-        reconcileTerminalIds: (threadRef, nextIds) =>
+        reconcileTerminalIds: (threadRef, nextIds, placementByTerminalId) =>
           updateTerminal(threadRef, (state, suppressedTerminalIds) => {
             if (suppressedTerminalIds.length === 0) {
-              return reconcileThreadTerminalSessionIds(state, nextIds);
+              return reconcileThreadTerminalSessionIds(state, nextIds, placementByTerminalId);
             }
             const suppressedIds = new Set(suppressedTerminalIds);
             return reconcileThreadTerminalSessionIds(
               state,
               nextIds.filter((terminalId) => !suppressedIds.has(terminalId)),
+              placementByTerminalId,
             );
           }),
         clearTerminalUiState: (threadRef) =>

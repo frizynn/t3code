@@ -122,12 +122,13 @@ export const TerminalReadToolResult = Schema.Struct({
 });
 export type TerminalReadToolResult = typeof TerminalReadToolResult.Type;
 
-export const TerminalListToolInput = Schema.Struct({
-  terminalId: Schema.optional(TerminalIdInput).annotate({
-    description:
-      "Return only this terminal. Omit to list every live terminal on this agent's thread.",
-  }),
-});
+/**
+ * `terminal_list` takes no parameters: the thread comes from the invocation
+ * scope. Modeled as a record rather than an empty struct because an empty
+ * struct encodes to `anyOf: [object, array]`, and tool input schemas have to be
+ * plain objects.
+ */
+export const TerminalListToolInput = Schema.Record(Schema.String, Schema.Unknown);
 export type TerminalListToolInput = typeof TerminalListToolInput.Type;
 
 export const TerminalListToolResult = Schema.Struct({
@@ -219,7 +220,7 @@ export const TerminalReadTool = readonlyShellTool(
 export const TerminalListTool = readonlyShellTool(
   Tool.make("terminal_list", {
     description:
-      "List the live terminals for this thread with their label, status, working directory, worktree, and whether a subprocess is still running. Use it to find an existing terminal before opening another one, or pass terminalId to check a single terminal.",
+      "List the live terminals for this thread with their label, status, working directory, worktree, and whether a subprocess is still running. Use it to find an existing terminal before opening another one.",
     parameters: TerminalListToolInput,
     success: TerminalListToolResult,
     failure: TerminalError,

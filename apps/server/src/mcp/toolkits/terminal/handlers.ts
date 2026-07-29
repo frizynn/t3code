@@ -1,13 +1,13 @@
 import {
   TerminalSessionLookupError,
   type TerminalMetadataStreamEvent,
-  type TerminalSessionSnapshot,
   type TerminalSummary,
 } from "@t3tools/contracts";
 import { nextTerminalId } from "@t3tools/shared/terminalLabels";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
+import * as Ref from "effect/Ref";
 
 import * as TerminalManager from "../../../terminal/Manager.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -18,7 +18,6 @@ import {
   TERMINAL_WAIT_DEFAULT_TIMEOUT_MS,
   TerminalToolkit,
   type TerminalCloseToolInput,
-  type TerminalListToolInput,
   type TerminalOpenToolInput,
   type TerminalReadToolInput,
   type TerminalWaitToolInput,
@@ -35,48 +34,13 @@ const requireThreadId = Effect.fn("TerminalToolkit.requireThreadId")(function* (
   return invocation.threadId;
 });
 
-/**
- * Reads the live terminal roster. `subscribeMetadata` delivers the full
- * snapshot before it hands back the unsubscribe function, so this is a
- * point-in-time read rather than a lasting subscription.
- */
+/** The roster is manager-wide, so every read is narrowed to the calling thread. */
 const readThreadTerminals = Effect.fn("TerminalToolkit.readThreadTerminals")(function* (
   threadId: string,
 ) {
   const manager = yield* TerminalManager.TerminalManager;
-  const captured: { terminals: ReadonlyArray<TerminalSummary> } = { terminals: [] };
-  const unsubscribe = yield* manager.subscribeMetadata((event) =>
-    Effect.sync(() => {
-      if (event.type === "snapshot") {
-        captured.terminals = event.terminals;
-      }
-    }),
-  );
-  unsubscribe();
-  return captured.terminals.filter((terminal) => terminal.threadId === threadId);
-});
-
-const findThreadTerminal = Effect.fn("TerminalToolkit.findThreadTerminal")(function* (
-  threadId: string,
-  terminalId: string,
-) {
-  const terminals = yield* readThreadTerminals(threadId);
-  return terminals.find((terminal) => terminal.terminalId === terminalId) ?? null;
-});
-
-/** `TerminalManager.open` returns a snapshot; subprocess activity is only known to the roster. */
-const summaryFromSnapshot = (snapshot: TerminalSessionSnapshot): TerminalSummary => ({
-  threadId: snapshot.threadId,
-  terminalId: snapshot.terminalId,
-  cwd: snapshot.cwd,
-  worktreePath: snapshot.worktreePath,
-  status: snapshot.status,
-  pid: snapshot.pid,
-  exitCode: snapshot.exitCode,
-  exitSignal: snapshot.exitSignal,
-  hasRunningSubprocess: false,
-  label: snapshot.label,
-  updatedAt: snapshot.updatedAt,
+  const terminals = yield* manager.readAllTerminalMetadata();
+  return terminals.filter((terminal) => terminal.threadId === threadId);
 });
 
 /* eslint-disable no-control-regex -- stripping PTY escape sequences means matching them */
@@ -121,28 +85,6 @@ export function boundTerminalOutput(
     truncated: keptLines.length < allLines.length || output.length < boundedByLines.length,
   };
 }
-
-/** Point-in-time snapshot of one terminal, including its scrollback. */
-const readTerminalSnapshot = Effect.fn("TerminalToolkit.readTerminalSnapshot")(function* (
-  threadId: string,
-  terminalId: string,
-) {
-  const manager = yield* TerminalManager.TerminalManager;
-  const captured: { snapshot: TerminalSessionSnapshot | null } = { snapshot: null };
-  const unsubscribe = yield* manager.attachStream({ threadId, terminalId }, (event) =>
-    Effect.sync(() => {
-      if (event.type === "snapshot") {
-        captured.snapshot = event.snapshot;
-      }
-    }),
-  );
-  unsubscribe();
-  const snapshot = captured.snapshot;
-  if (!snapshot) {
-    return yield* new TerminalSessionLookupError({ threadId, terminalId });
-  }
-  return snapshot;
-});
 
 const applyMetadataEvent = (
   event: TerminalMetadataStreamEvent,
@@ -196,33 +138,37 @@ const waitForTerminalIdle = Effect.fn("TerminalToolkit.waitForTerminalIdle")(fun
     return matches ? Effect.asVoid(Queue.offer(events, event)) : Effect.void;
   });
 
-  const latest: { terminal: TerminalSummary | null } = { terminal: null };
-  const settle: Effect.Effect<"idle" | "missing"> = Effect.gen(function* () {
-    // `subscribeMetadata` always delivers a full snapshot first.
-    latest.terminal = applyMetadataEvent(yield* Queue.take(events), threadId, terminalId);
-    if (!latest.terminal) return "missing";
-    for (;;) {
-      if (latest.terminal?.hasRunningSubprocess !== true) {
-        const next = yield* Queue.take(events).pipe(Effect.timeoutOption(quietMs));
-        if (Option.isNone(next)) return "idle";
-        latest.terminal = applyMetadataEvent(next.value, threadId, terminalId);
-        continue;
-      }
-      latest.terminal = applyMetadataEvent(yield* Queue.take(events), threadId, terminalId);
+  const wait = Effect.gen(function* () {
+    // Seeded after subscribing, so no transition falls between the two.
+    const seed = yield* manager.readTerminalMetadata({ threadId, terminalId });
+    if (!seed) {
+      return yield* new TerminalSessionLookupError({ threadId, terminalId });
     }
+    const latest = yield* Ref.make<TerminalSummary | null>(seed);
+
+    // A quiet window only settles the wait while nothing is running; with a
+    // subprocess still alive it just goes back to waiting for the next event.
+    const settle = Effect.gen(function* () {
+      for (;;) {
+        const next = yield* Queue.take(events).pipe(Effect.timeoutOption(quietMs));
+        if (Option.isNone(next)) {
+          const terminal = yield* Ref.get(latest);
+          if (terminal?.hasRunningSubprocess !== true) return;
+          continue;
+        }
+        yield* Ref.set(latest, applyMetadataEvent(next.value, threadId, terminalId));
+      }
+    });
+
+    const settled = yield* settle.pipe(Effect.timeoutOption(timeoutMs));
+    return {
+      idle: Option.isSome(settled),
+      timedOut: Option.isNone(settled),
+      terminal: yield* Ref.get(latest),
+    };
   });
 
-  const settled = yield* settle.pipe(
-    Effect.timeoutOption(timeoutMs),
-    Effect.ensuring(Effect.sync(unsubscribe)),
-  );
-  if (Option.isNone(settled)) {
-    return { idle: false, timedOut: true, terminal: latest.terminal };
-  }
-  if (settled.value === "missing") {
-    return yield* new TerminalSessionLookupError({ threadId, terminalId });
-  }
-  return { idle: true, timedOut: false, terminal: latest.terminal };
+  return yield* wait.pipe(Effect.ensuring(Effect.sync(unsubscribe)));
 });
 
 export const terminalToolkitHandlers = {
@@ -234,7 +180,7 @@ export const terminalToolkitHandlers = {
     const existing = yield* readThreadTerminals(threadId);
     const terminalId =
       input.terminalId ?? nextTerminalId(existing.map((terminal) => terminal.terminalId));
-    const snapshot = yield* manager.open({
+    yield* manager.open({
       threadId,
       terminalId,
       cwd: input.cwd,
@@ -242,8 +188,12 @@ export const terminalToolkitHandlers = {
       ...(input.cols === undefined ? {} : { cols: input.cols }),
       ...(input.rows === undefined ? {} : { rows: input.rows }),
     });
-    const terminal = yield* findThreadTerminal(threadId, terminalId);
-    return { terminalId, terminal: terminal ?? summaryFromSnapshot(snapshot) };
+    // `open` leaves the session in the roster; only a concurrent close can lose it.
+    const terminal = yield* manager.readTerminalMetadata({ threadId, terminalId });
+    if (!terminal) {
+      return yield* new TerminalSessionLookupError({ threadId, terminalId });
+    }
+    return { terminalId, terminal };
   }),
 
   terminal_write: Effect.fn("TerminalToolkit.terminal_write")(function* (
@@ -262,31 +212,28 @@ export const terminalToolkitHandlers = {
     input: TerminalReadToolInput,
   ) {
     const threadId = yield* requireThreadId();
-    const snapshot = yield* readTerminalSnapshot(threadId, input.terminalId);
-    const terminal = yield* findThreadTerminal(threadId, input.terminalId);
+    const manager = yield* TerminalManager.TerminalManager;
+    const terminalId = input.terminalId;
+    const snapshot = yield* manager.readTerminalSnapshot({ threadId, terminalId });
+    if (!snapshot) {
+      return yield* new TerminalSessionLookupError({ threadId, terminalId });
+    }
+    const terminal = yield* manager.readTerminalMetadata({ threadId, terminalId });
     const history =
       input.stripAnsi === false
         ? snapshot.history
         : stripTerminalControlSequences(snapshot.history);
     return {
-      terminalId: input.terminalId,
+      terminalId,
       status: snapshot.status,
       hasRunningSubprocess: terminal?.hasRunningSubprocess ?? false,
       ...boundTerminalOutput(history, input.lines ?? TERMINAL_READ_DEFAULT_LINES),
     };
   }),
 
-  terminal_list: Effect.fn("TerminalToolkit.terminal_list")(function* (
-    input: TerminalListToolInput,
-  ) {
+  terminal_list: Effect.fn("TerminalToolkit.terminal_list")(function* () {
     const threadId = yield* requireThreadId();
-    const terminals = yield* readThreadTerminals(threadId);
-    return {
-      terminals:
-        input.terminalId === undefined
-          ? terminals
-          : terminals.filter((terminal) => terminal.terminalId === input.terminalId),
-    };
+    return { terminals: yield* readThreadTerminals(threadId) };
   }),
 
   terminal_wait: Effect.fn("TerminalToolkit.terminal_wait")(function* (
@@ -307,7 +254,10 @@ export const terminalToolkitHandlers = {
   ) {
     const threadId = yield* requireThreadId();
     const manager = yield* TerminalManager.TerminalManager;
-    const terminal = yield* findThreadTerminal(threadId, input.terminalId);
+    const terminal = yield* manager.readTerminalMetadata({
+      threadId,
+      terminalId: input.terminalId,
+    });
     if (!terminal) {
       return { terminalId: input.terminalId, closed: false };
     }

@@ -9,7 +9,7 @@ import {
   type TerminalSessionStatus,
   type TerminalSummary,
 } from "@t3tools/contracts";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import { getTerminalLabel, nextTerminalId } from "@t3tools/shared/terminalLabels";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
@@ -38,6 +38,10 @@ interface StubTerminalManager {
   readonly service: TerminalManager.TerminalManager["Service"];
   readonly writes: ReadonlyArray<{ readonly terminalId: string; readonly data: string }>;
   readonly emitOutput: (threadId: string, terminalId: string, data: string) => Effect.Effect<void>;
+  readonly markExited: (threadId: string, terminalId: string) => void;
+  /** Unnamed opens must delegate id allocation to the manager's locked path. */
+  readonly allocatedByManager: number;
+  readonly openedByName: ReadonlyArray<string>;
   readonly setSubprocess: (
     threadId: string,
     terminalId: string,
@@ -54,6 +58,8 @@ const makeStubTerminalManager = (): StubTerminalManager => {
   const sessions = new Map<string, StubSession>();
   const listeners = new Set<(event: TerminalEvent) => Effect.Effect<void>>();
   const writes: Array<{ readonly terminalId: string; readonly data: string }> = [];
+  const openedByName: Array<string> = [];
+  const counters = { allocatedByManager: 0 };
   const key = (threadId: string, terminalId: string) => `${threadId} ${terminalId}`;
 
   const summaryOf = (session: StubSession): TerminalSummary => ({
@@ -87,8 +93,13 @@ const makeStubTerminalManager = (): StubTerminalManager => {
   const publish = (event: TerminalEvent) =>
     Effect.forEach([...listeners], (listener) => listener(event), { discard: true });
 
+  const openByName = (name: string) => {
+    openedByName.push(name);
+  };
+
   const open: TerminalManager.TerminalManager["Service"]["open"] = Effect.fn("stub.open")(
     function* (input) {
+      openByName(input.terminalId);
       const existing = sessions.get(key(input.threadId, input.terminalId));
       const session: StubSession = existing ?? {
         threadId: input.threadId,
@@ -266,9 +277,23 @@ const makeStubTerminalManager = (): StubTerminalManager => {
     return Effect.succeed(session ? snapshotOf(session) : null);
   };
 
+  const openNewTerminal: TerminalManager.TerminalManager["Service"]["openNewTerminal"] = (
+    input,
+  ) => {
+    counters.allocatedByManager += 1;
+    const before = openedByName.length;
+    const used = [...sessions.values()]
+      .filter((session) => session.threadId === input.threadId)
+      .map((session) => session.terminalId);
+    return open({ ...input, terminalId: nextTerminalId(used) }).pipe(
+      Effect.tap(() => Effect.sync(() => openedByName.splice(before))),
+    );
+  };
+
   return {
     service: TerminalManager.TerminalManager.of({
       open,
+      openNewTerminal,
       attachStream,
       write,
       resize: () => Effect.void,
@@ -282,7 +307,15 @@ const makeStubTerminalManager = (): StubTerminalManager => {
       readTerminalSnapshot,
     }),
     writes,
+    get allocatedByManager() {
+      return counters.allocatedByManager;
+    },
+    openedByName,
     emitOutput: appendOutput,
+    markExited: (threadId: string, terminalId: string) => {
+      const session = sessions.get(key(threadId, terminalId));
+      if (session) session.status = "exited";
+    },
     setSubprocess: Effect.fn("stub.setSubprocess")(function* (threadId, terminalId, running) {
       const session = sessions.get(key(threadId, terminalId));
       if (!session) return;
@@ -382,6 +415,48 @@ it.effect("allocates the lowest free terminal id and reattaches to a named one",
       "term-1",
       "term-2",
     ]);
+  }),
+);
+
+it.effect("delegates id allocation for an unnamed open to the manager", () =>
+  Effect.gen(function* () {
+    const stub = makeStubTerminalManager();
+    yield* runAs("thread-a", stub, terminalToolkitHandlers.terminal_open({ cwd: "/repo" }));
+
+    // Choosing the id here instead would race a concurrent open: both callers
+    // would read the same roster, pick the same free id, and the second would
+    // reattach to the first session. Only the manager can allocate under its
+    // thread lock, so an unnamed open must go through openNewTerminal.
+    expect(stub.allocatedByManager).toBe(1);
+    expect(stub.openedByName).toEqual([]);
+
+    yield* runAs(
+      "thread-a",
+      stub,
+      terminalToolkitHandlers.terminal_open({ cwd: "/repo", terminalId: "term-9" }),
+    );
+    expect(stub.allocatedByManager).toBe(1);
+    expect(stub.openedByName).toEqual(["term-9"]);
+  }),
+);
+
+it.effect("refuses to report a write as submitted once the shell has exited", () =>
+  Effect.gen(function* () {
+    const stub = makeStubTerminalManager();
+    yield* runAs("thread-a", stub, terminalToolkitHandlers.terminal_open({ cwd: "/repo" }));
+    stub.markExited("thread-a", "term-1");
+
+    // TerminalManager.write is a deliberate no-op for an exited session, so a
+    // blind write would tell the agent a command ran when nothing received it.
+    const result = yield* Effect.exit(
+      runAs(
+        "thread-a",
+        stub,
+        terminalToolkitHandlers.terminal_write({ terminalId: "term-1", data: "ls" }),
+      ),
+    );
+    expect(result._tag).toBe("Failure");
+    expect(stub.writes).toHaveLength(0);
   }),
 );
 

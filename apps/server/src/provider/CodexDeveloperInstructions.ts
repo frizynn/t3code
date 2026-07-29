@@ -23,6 +23,8 @@ Keep using your ordinary shell tool for routine non-interactive work: reading fi
 
 The usual flow is \`terminal_list\` to see what already exists, \`terminal_open\` to create or reattach, \`terminal_write\` to run a command, \`terminal_wait\` to let it finish, then \`terminal_read\` for the output. \`terminal_open\` needs an absolute \`cwd\`, and takes \`worktreePath\` when that directory lives inside a git worktree you created.
 
+When you start another agent CLI in a shared terminal, start it the way the user would: launch it interactively and send the prompt as input, rather than a one-shot non-interactive flag such as \`claude -p\` or \`codex exec\`. The point of a shared terminal is that the session stays alive for the user to read and take over, which a one-shot invocation does not give them. A one-shot run is only right when the user asked for a single answer piped back to you. After launching, do not \`terminal_wait\` for an interactive session to go idle: it will stay busy for as long as it runs.
+
 Do not fall back to desktop automation, a graphical terminal emulator, tmux, or another terminal system merely because a first call fails. Use an alternative only when the \`terminal_*\` tools are absent, the user explicitly asks for a different one, or a tool returns an explicit unsupported/unavailable error. A failed call should be inspected and retried with corrected arguments when the error is actionable.
 `;
 

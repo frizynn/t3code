@@ -296,6 +296,23 @@ it.layer(
     }),
   );
 
+  it.effect("gives concurrent openNewTerminal its own session", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager();
+      const { terminalId: _ignored, ...withoutId } = openInput();
+
+      const opened = yield* Effect.all(
+        [manager.openNewTerminal(withoutId), manager.openNewTerminal(withoutId)],
+        { concurrency: "unbounded" },
+      );
+
+      // Allocating the id outside the thread lock would let both callers pick
+      // the same free id, so the second would reattach instead of spawning.
+      assert.equal(new Set(opened.map((snapshot) => snapshot.terminalId)).size, 2);
+      expect(ptyAdapter.spawnInputs).toHaveLength(2);
+    }),
+  );
+
   it.effect("attaches to running sessions without restarting them", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();

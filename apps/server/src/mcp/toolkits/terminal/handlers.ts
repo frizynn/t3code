@@ -1,9 +1,9 @@
 import {
+  TerminalNotRunningError,
   TerminalSessionLookupError,
   type TerminalMetadataStreamEvent,
   type TerminalSummary,
 } from "@t3tools/contracts";
-import { nextTerminalId } from "@t3tools/shared/terminalLabels";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -177,17 +177,21 @@ export const terminalToolkitHandlers = {
   ) {
     const threadId = yield* requireThreadId();
     const manager = yield* TerminalManager.TerminalManager;
-    const existing = yield* readThreadTerminals(threadId);
-    const terminalId =
-      input.terminalId ?? nextTerminalId(existing.map((terminal) => terminal.terminalId));
-    yield* manager.open({
+    const options = {
       threadId,
-      terminalId,
       cwd: input.cwd,
       ...(input.worktreePath === undefined ? {} : { worktreePath: input.worktreePath }),
       ...(input.cols === undefined ? {} : { cols: input.cols }),
       ...(input.rows === undefined ? {} : { rows: input.rows }),
-    });
+    };
+    // Allocating an id here would race a concurrent open: both callers would pick
+    // the same free id and the second would silently reattach to the first
+    // session. `openNewTerminal` allocates under the manager's thread lock.
+    const snapshot =
+      input.terminalId === undefined
+        ? yield* manager.openNewTerminal(options)
+        : yield* manager.open({ ...options, terminalId: input.terminalId });
+    const terminalId = snapshot.terminalId;
     // `open` leaves the session in the roster; only a concurrent close can lose it.
     const terminal = yield* manager.readTerminalMetadata({ threadId, terminalId });
     if (!terminal) {
@@ -204,6 +208,18 @@ export const terminalToolkitHandlers = {
     const endsWithNewline = input.data.endsWith("\n") || input.data.endsWith("\r");
     const submit = input.submit ?? true;
     const data = submit && !endsWithNewline ? `${input.data}\r` : input.data;
+    // `TerminalManager.write` is a deliberate no-op once a session has exited, so
+    // writing blind would report success for input that reached no shell.
+    const before = yield* manager.readTerminalMetadata({
+      threadId,
+      terminalId: input.terminalId,
+    });
+    if (!before) {
+      return yield* new TerminalSessionLookupError({ threadId, terminalId: input.terminalId });
+    }
+    if (before.status !== "running") {
+      return yield* new TerminalNotRunningError({ threadId, terminalId: input.terminalId });
+    }
     yield* manager.write({ threadId, terminalId: input.terminalId, data });
     return { terminalId: input.terminalId, submitted: submit || endsWithNewline };
   }),

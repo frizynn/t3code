@@ -35,7 +35,7 @@ import {
 } from "@t3tools/contracts";
 import { makeKeyedCoalescingWorker } from "@t3tools/shared/KeyedCoalescingWorker";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
-import { getTerminalLabel } from "@t3tools/shared/terminalLabels";
+import { getTerminalLabel, nextTerminalId } from "@t3tools/shared/terminalLabels";
 import * as DateTime from "effect/DateTime";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -126,6 +126,16 @@ export class TerminalManager extends Context.Service<
      */
     readonly open: (
       input: TerminalOpenInput,
+    ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
+
+    /**
+     * Open a new terminal session under a freshly allocated id.
+     *
+     * Allocation and open happen under the same thread lock, so concurrent
+     * callers cannot pick the same id and silently reattach to one session.
+     */
+    readonly openNewTerminal: (
+      input: Omit<TerminalOpenInput, "terminalId">,
     ) => Effect.Effect<TerminalSessionSnapshot, TerminalError>;
 
     /**
@@ -2297,6 +2307,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const open: TerminalManager["Service"]["open"] = (input) =>
     withThreadLock(input.threadId, openLocked(input));
 
+  const openNewTerminal: TerminalManager["Service"]["openNewTerminal"] = (input) =>
+    withThreadLock(
+      input.threadId,
+      Effect.gen(function* () {
+        const state = yield* readManagerState;
+        const usedIds = [...state.sessions.values()]
+          .filter((session) => session.threadId === input.threadId)
+          .map((session) => session.terminalId);
+        return yield* openLocked({ ...input, terminalId: nextTerminalId(usedIds) });
+      }),
+    );
+
   const openOrAttachForStream = (input: TerminalAttachInput) =>
     withThreadLock(
       input.threadId,
@@ -2694,6 +2716,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     close,
     subscribe,
     subscribeMetadata,
+    openNewTerminal,
     readAllTerminalMetadata,
     readTerminalMetadata,
     readTerminalSnapshot,

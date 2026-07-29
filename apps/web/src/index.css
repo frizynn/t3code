@@ -968,9 +968,15 @@ body {
   padding: 0;
 }
 
+/* Never taller than the viewport. Adding the top inset here left the document
+   scrollable by that much on notched iOS: opening the keyboard scrolls the
+   window to reveal the focused field, closing it does not scroll back, and the
+   bottom of the h-svh app shell — the composer — stays clipped below the fold.
+   Client-side navigation does not reset window scroll, so it survived changing
+   threads until some other relayout happened to bring it back. */
 html,
 body {
-  min-height: calc(100svh + env(safe-area-inset-top));
+  min-height: 100svh;
   overscroll-behavior: none;
 }
 

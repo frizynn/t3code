@@ -5865,7 +5865,11 @@ function ChatViewContent(props: ChatViewProps) {
                             activeThread={activeThread}
                             isServerThread={isServerThread}
                             isLocalDraftThread={isLocalDraftThread}
-                            forceExpandedOnMobile={forceExpandedMobileComposer && isDraftHeroState}
+                            // Upstream collapses the mobile composer whenever it loses focus, so
+                            // sending a message or switching threads leaves only a tap-target row.
+                            // On a phone that row can end up under the browser's own bottom bar,
+                            // which reads as the composer having vanished. Keep it expanded.
+                            forceExpandedOnMobile
                             projectSelectionRequired={isLocalDraftThread && activeProject === null}
                             phase={phase}
                             isConnecting={isConnecting}

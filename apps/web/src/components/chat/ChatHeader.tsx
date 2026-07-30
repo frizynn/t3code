@@ -104,7 +104,7 @@ export const ChatHeader = memo(function ChatHeader({
                     type="button"
                     aria-label={`New thread in ${activeProjectName}`}
                     onClick={onNewThreadInProject}
-                    className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    className="relative inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring after:-inset-2 after:absolute sm:after:hidden"
                   />
                 }
               >
@@ -113,11 +113,18 @@ export const ChatHeader = memo(function ChatHeader({
                   cwd={activeProjectCwd ?? ""}
                   className="size-3.5 shrink-0"
                 />
-                <span className="max-w-40 truncate text-sm font-medium">{activeProjectName}</span>
+                {/* Phones only have ~125px between the sidebar toggle and the
+                    actions cluster. Split across both labels the project name
+                    truncated to "General (hom" and the thread title collapsed to
+                    zero width, so below sm the favicon carries the project and
+                    the title gets the whole row. */}
+                <span className="hidden max-w-40 truncate text-sm font-medium sm:inline">
+                  {activeProjectName}
+                </span>
               </TooltipTrigger>
               <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
             </Tooltip>
-            <span aria-hidden className="shrink-0 text-muted-foreground/40">
+            <span aria-hidden className="hidden shrink-0 text-muted-foreground/40 sm:inline">
               /
             </span>
           </span>
@@ -140,7 +147,13 @@ export const ChatHeader = memo(function ChatHeader({
         data-chat-header-actions
         className={cn(
           "flex shrink-0 items-center justify-end gap-2 @3xl/header-actions:gap-3",
-          rightPanelOpen ? "pr-0" : "pr-16",
+          // With the right panel closed the panel toggles are absolutely
+          // positioned over this row's tail, so reserve exactly their width plus
+          // their own 4px gap. `Toggle size="sm"` is 32px below `sm` and 28px at
+          // or above it, so the pair measures 68px on phones and 60px elsewhere.
+          // pr-16 covered the 60px but not the 68px, which parked the last git
+          // chevron under the z-50 terminal toggle and stole its taps.
+          rightPanelOpen ? "pr-0" : "pr-18 sm:pr-16",
         )}
       >
         {activeProjectScripts && (

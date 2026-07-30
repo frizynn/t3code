@@ -34,12 +34,26 @@ export function syncVisualViewportHeight(): () => void {
   }
 
   let frame: number | null = null;
+  let lastHeight: string | null = null;
+  let lastOffsetTop: string | null = null;
 
+  // Writing a custom property on the root element invalidates style for the
+  // whole tree, so skip the write when the geometry is unchanged. iOS keeps
+  // firing `scroll` after a pan has settled, and every one of those events
+  // would otherwise cost a full recalc.
   const write = () => {
     frame = null;
     const { style } = document.documentElement;
-    style.setProperty(HEIGHT_VARIABLE, `${viewport.height}px`);
-    style.setProperty(OFFSET_TOP_VARIABLE, `${viewport.offsetTop}px`);
+    const height = `${viewport.height}px`;
+    const offsetTop = `${viewport.offsetTop}px`;
+    if (height !== lastHeight) {
+      lastHeight = height;
+      style.setProperty(HEIGHT_VARIABLE, height);
+    }
+    if (offsetTop !== lastOffsetTop) {
+      lastOffsetTop = offsetTop;
+      style.setProperty(OFFSET_TOP_VARIABLE, offsetTop);
+    }
   };
 
   // iOS fires `scroll` for every frame of the keyboard's pan animation, and
@@ -56,6 +70,8 @@ export function syncVisualViewportHeight(): () => void {
 
   return () => {
     if (frame !== null) window.cancelAnimationFrame(frame);
+    lastHeight = null;
+    lastOffsetTop = null;
     viewport.removeEventListener("resize", apply);
     viewport.removeEventListener("scroll", apply);
     document.documentElement.style.removeProperty(HEIGHT_VARIABLE);

@@ -1752,7 +1752,10 @@ function ComposerPromptEditorInner({
           contentEditable={
             <ContentEditable
               className={cn(
-                "block max-h-50 min-h-17.5 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:text-[14px]",
+                // Start at a single line on phones and grow with the content up to
+                // max-h-50. The taller default is worth it on desktop, but here the
+                // composer no longer collapses, so it would eat a fifth of the screen.
+                "block max-h-50 min-h-11 w-full overflow-y-auto whitespace-pre-wrap wrap-break-word bg-transparent text-[16px] leading-relaxed text-foreground focus:outline-none sm:min-h-17.5 sm:text-[14px]",
                 className,
               )}
               data-testid="composer-editor"

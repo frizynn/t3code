@@ -997,6 +997,31 @@ body {
   padding-right: var(--desktop-window-right-resize-inset);
 }
 
+/* Phones only: pin the shell to the visual viewport instead of the layout one.
+   When the keyboard opens, iOS Safari keeps the layout viewport at its full
+   height and pans the visual viewport down over it to reveal the focused field.
+   A shell laid out against the layout viewport therefore slides off the top of
+   the screen, and because the document is still `100svh` tall the page can be
+   dragged around under the keyboard. Dropping the `svh` floor removes the
+   scrollable overflow, and `top` follows the pan so the app stays put.
+   `position: fixed` with an offset (rather than a transform) avoids creating a
+   containing block, which would re-anchor every fixed overlay inside the app. */
+@media (max-width: 47.999rem) {
+  html,
+  body {
+    min-height: 0;
+    height: 100%;
+  }
+
+  #root {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--app-viewport-offset-top, 0px);
+    height: var(--app-viewport-height, 100svh);
+  }
+}
+
 .electron-windows {
   --desktop-window-right-resize-inset: 6px;
 }

@@ -183,7 +183,16 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   }, [navigate, pathname]);
 
   return (
-    <SidebarProvider className="h-dvh! min-h-0!" defaultOpen style={sidebarProviderStyle}>
+    // The chat routes size themselves to the visual viewport on phones, but
+    // this wrapper stayed at `100dvh`. `dvh` grows as iOS Safari collapses its
+    // toolbars, so the wrapper outgrew the visible area and left the document
+    // scrollable by the difference, enough to push the composer off-screen.
+    // Track the same height here; `md` keeps the original `dvh`.
+    <SidebarProvider
+      className="h-[var(--app-viewport-height,100dvh)]! min-h-0! md:h-dvh!"
+      defaultOpen
+      style={sidebarProviderStyle}
+    >
       <Sidebar
         side="left"
         collapsible="offcanvas"

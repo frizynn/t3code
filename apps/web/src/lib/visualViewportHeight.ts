@@ -5,7 +5,7 @@
  * browser's toolbars expanded. It does not track the toolbars actually
  * collapsing or expanding, and it does not react to the on-screen keyboard. On
  * iOS Safari that leaves the bottom of a `h-svh` shell sitting under the
- * browser's own bottom bar, which clips whatever is docked there — for us, the
+ * browser's own bottom bar, which clips whatever is docked there: for us, the
  * composer's controls.
  *
  * The visual viewport is the part the user can really see, so tracking it keeps

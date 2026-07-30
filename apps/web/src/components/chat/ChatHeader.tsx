@@ -93,7 +93,10 @@ export const ChatHeader = memo(function ChatHeader({
             thread lives in is priority zero, and the thread title alone
             doesn't answer it. */}
         {activeProjectName ? (
-          <span className="inline-flex shrink-0 items-center gap-2">
+          // This group has to shrink: at phone widths the actions cluster leaves
+          // it around 100px, and a `shrink-0` group overflowed the row's
+          // `overflow-hidden` and got sliced mid-glyph with no ellipsis.
+          <span className="inline-flex min-w-0 items-center gap-2">
             <Tooltip>
               <TooltipTrigger
                 render={
@@ -108,13 +111,13 @@ export const ChatHeader = memo(function ChatHeader({
                 <ProjectFavicon
                   environmentId={activeThreadEnvironmentId}
                   cwd={activeProjectCwd ?? ""}
-                  className="size-3.5"
+                  className="size-3.5 shrink-0"
                 />
                 <span className="max-w-40 truncate text-sm font-medium">{activeProjectName}</span>
               </TooltipTrigger>
               <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
             </Tooltip>
-            <span aria-hidden className="text-muted-foreground/40">
+            <span aria-hidden className="shrink-0 text-muted-foreground/40">
               /
             </span>
           </span>

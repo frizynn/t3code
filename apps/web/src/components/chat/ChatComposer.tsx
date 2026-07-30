@@ -208,6 +208,12 @@ import type { ReviewCommentContext } from "../../reviewCommentContext";
 
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
 
+const COMPOSER_HINT_PLACEHOLDER =
+  "Ask anything, @tag files/folders, $use skills, or / for commands";
+// The full hint needs ~460px and wraps to two lines on a phone, which is most of
+// why the composer looks bulky there. Phones keep the three sigils, not the verbs.
+const COMPOSER_HINT_PLACEHOLDER_COMPACT = "Ask anything, @ files, $ skills, / commands";
+
 const runtimeModeConfig: Record<
   RuntimeMode,
   { label: string; description: string; icon: LucideIcon }
@@ -2600,6 +2606,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ],
   );
 
+  const composerPlaceholder = isComposerApprovalState
+    ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
+    : activePendingProgress
+      ? "Type your own answer, or leave this blank to use the selected option"
+      : showPlanFollowUpPrompt && activeProposedPlan
+        ? "Add feedback to refine the plan, or leave this blank to implement it"
+        : projectSelectionRequired
+          ? "Choose a project above to start a thread"
+          : noProviderAvailable
+            ? "Enable a provider in Settings to send a message"
+            : phase === "disconnected"
+              ? "Ask for follow-up changes or attach images"
+              : COMPOSER_HINT_PLACEHOLDER;
+
   // Render
   // ------------------------------------------------------------------
   return (
@@ -2994,21 +3014,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 onChange={onPromptChange}
                 onCommandKeyDown={onComposerCommandKey}
                 onPaste={onComposerPaste}
-                placeholder={
-                  isComposerApprovalState
-                    ? (activePendingApproval?.detail ?? "Resolve this approval request to continue")
-                    : activePendingProgress
-                      ? "Type your own answer, or leave this blank to use the selected option"
-                      : showPlanFollowUpPrompt && activeProposedPlan
-                        ? "Add feedback to refine the plan, or leave this blank to implement it"
-                        : projectSelectionRequired
-                          ? "Choose a project above to start a thread"
-                          : noProviderAvailable
-                            ? "Enable a provider in Settings to send a message"
-                            : phase === "disconnected"
-                              ? "Ask for follow-up changes or attach images"
-                              : "Ask anything, @tag files/folders, $use skills, or / for commands"
-                }
+                placeholder={composerPlaceholder}
+                {...(composerPlaceholder === COMPOSER_HINT_PLACEHOLDER
+                  ? { compactPlaceholder: COMPOSER_HINT_PLACEHOLDER_COMPACT }
+                  : {})}
                 disabled={isConnecting || isComposerApprovalState || projectSelectionRequired}
               />
               {showMobilePendingAnswerActions ? (

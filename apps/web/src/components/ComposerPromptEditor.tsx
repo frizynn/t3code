@@ -883,6 +883,11 @@ interface ComposerPromptEditorProps {
   skills: ReadonlyArray<ServerProviderSkill>;
   disabled: boolean;
   placeholder: string;
+  /**
+   * Shown instead of `placeholder` below Tailwind's `sm` breakpoint. The full
+   * hint wraps to two lines on a phone, which makes the composer look bulky.
+   */
+  compactPlaceholder?: string;
   className?: string;
   onRemoveTerminalContext: (contextId: string) => void;
   onChange: (
@@ -1532,6 +1537,7 @@ function ComposerPromptEditorInner({
   skills,
   disabled,
   placeholder,
+  compactPlaceholder,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1767,7 +1773,14 @@ function ComposerPromptEditorInner({
           placeholder={
             terminalContexts.length > 0 ? null : (
               <div className="pointer-events-none absolute inset-0 text-[16px] leading-relaxed text-muted-foreground/35 sm:text-[14px]">
-                {placeholder}
+                {compactPlaceholder ? (
+                  <>
+                    <span className="sm:hidden">{compactPlaceholder}</span>
+                    <span className="max-sm:hidden">{placeholder}</span>
+                  </>
+                ) : (
+                  placeholder
+                )}
               </div>
             )
           }
@@ -1795,6 +1808,7 @@ export function ComposerPromptEditor({
   skills,
   disabled,
   placeholder,
+  compactPlaceholder,
   className,
   onRemoveTerminalContext,
   onChange,
@@ -1837,6 +1851,7 @@ export function ComposerPromptEditor({
         onChange={onChange}
         onPaste={onPaste}
         editorRef={editorRef}
+        {...(compactPlaceholder ? { compactPlaceholder } : {})}
         {...(onCommandKeyDown ? { onCommandKeyDown } : {})}
         {...(className ? { className } : {})}
       />
